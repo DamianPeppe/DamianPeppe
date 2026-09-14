@@ -1,0 +1,67 @@
+name: CI Pipeline
+
+on:
+  - push
+  - pull_request
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: Test (${{ matrix.runtime }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        runtime: [stable, oldstable]
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Go ${{ matrix.runtime }}
+        uses: actions/setup-go@v5
+        with:
+          go-version: ${{ matrix.runtime }}
+          cache: false
+
+      - name: Install dependencies
+        if: hashFiles('go.mod') != ''
+        run: go mod download
+
+      - name: Check formatting
+        if: hashFiles('go.mod') != ''
+        run: test -z "$(gofmt -l .)"
+
+      - name: Lint Go code
+        if: hashFiles('go.mod') != ''
+        run: go vet ./...
+
+      - name: Build Go packages
+        if: hashFiles('go.mod') != ''
+        run: go build ./...
+
+      - name: Run Go tests
+        if: hashFiles('go.mod') != ''
+        run: go test ./...
+
+      - name: Write pipeline summary
+        if: always()
+        shell: bash
+        run: |
+          set -eu
+          outcomes=("${{ steps.install-dependencies.outcome }}" "${{ steps.check-format.outcome }}" "${{ steps.lint-go-code.outcome }}" "${{ steps.build-go-packages.outcome }}" "${{ steps.run-go-tests.outcome }}")
+          labels=("Install dependencies" "Check formatting" "Lint Go code" "Build Go packages" "Run Go tests")
+          {
+            echo "## Go ${{ matrix.runtime }}"
+            echo
+            echo "| Step | Outcome |"
+            echo "| --- | --- |"
+            for i in "${!labels[@]}"; do
+              echo "| ${labels[$i]} | ${outcomes[$i]} |"
+            done
+          } >> "$GITHUB_STEP_SUMMARY"
